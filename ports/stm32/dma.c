@@ -707,6 +707,12 @@ static const uint8_t dma_irqn[NSTREAM] = {
 #define DMA1_ENABLE_MASK (0x00ff) // Bits in dma_enable_mask corresponding to GPDMA1
 #define DMA2_ENABLE_MASK (0xff00) // Bits in dma_enable_mask corresponding to GPDMA2
 
+// These descriptors are ordered by DMAx_Channel number, and within a channel by request
+// number. The duplicate streams are ok as long as they aren't used at the same time.
+
+// TODO: Check
+const dma_descr_t dma_SPI_1_RX = { GPDMA1_Channel0, GPDMA1_REQUEST_SPI1_RX, dma_id_0, &dma_init_struct_spi_i2c };
+const dma_descr_t dma_SPI_1_TX = { GPDMA1_Channel1, GPDMA1_REQUEST_SPI1_TX, dma_id_1, &dma_init_struct_spi_i2c };
 const dma_descr_t dma_SPI_2_RX = { GPDMA1_Channel0, GPDMA1_REQUEST_SPI2_RX, dma_id_0, &dma_init_struct_spi_i2c };
 const dma_descr_t dma_SPI_2_TX = { GPDMA1_Channel1, GPDMA1_REQUEST_SPI2_TX, dma_id_1, &dma_init_struct_spi_i2c };
 
@@ -728,6 +734,12 @@ static const uint8_t dma_irqn[NSTREAM] = {
     GPDMA2_Channel6_IRQn,
     GPDMA2_Channel7_IRQn,
 };
+#if 0
+#if MICROPY_HW_ENABLE_DAC
+const dma_descr_t dma_DAC_1_TX = { DMA1_Channel3, DMA_REQUEST_DAC1_CHANNEL1, dma_id_2,   &dma_init_struct_dac };
+const dma_descr_t dma_DAC_2_TX = { DMA1_Channel4, DMA_REQUEST_DAC1_CHANNEL2, dma_id_3,   &dma_init_struct_dac };
+#endif
+#endif
 
 #elif defined(STM32H7)
 

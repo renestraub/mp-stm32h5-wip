@@ -581,7 +581,7 @@ bool uart_init(pyb_uart_obj_t *uart_obj,
     huart.Init.HwFlowCtl = flow;
     huart.Init.OverSampling = UART_OVERSAMPLING_16;
 
-    #if defined(STM32G4)  // H7 and WB also have fifo..
+    #if defined(STM32G4) || defined(STM32H5) // H5, H7 and WB also have fifo..
     huart.FifoMode = UART_FIFOMODE_ENABLE;
     #endif
 
