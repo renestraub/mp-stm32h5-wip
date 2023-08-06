@@ -6,7 +6,7 @@
 #define MICROPY_HW_ENABLE_RTC               (1)
 #define MICROPY_HW_ENABLE_RNG               (1)
 #define MICROPY_HW_ENABLE_ADC               (1)
-#define MICROPY_HW_ENABLE_DAC               (0) // TODO: requires DMA, which is not yet ready
+#define MICROPY_HW_ENABLE_DAC               (1) // TODO: requires DMA, which is not yet ready
 #define MICROPY_HW_ENABLE_USB               (1)
 #define MICROPY_HW_HAS_SWITCH               (1)
 #define MICROPY_HW_HAS_FLASH                (1)
@@ -55,14 +55,12 @@
 #define MICROPY_HW_I2C2_SCL                 (pin_F1) // Connector CN9-Pin19
 #define MICROPY_HW_I2C2_SDA                 (pin_F0) // Connector CN9-Pin21
 
-#if 1
 // SPI buses
-// TODO: PD14 according to Datasheet not working as SPI1_NSS, have to use as GPIO
-// #define MICROPY_HW_SPI1_NSS                 (pin_D14) // Arduino Connector CN7-Pin16 (D10)
+// PD14 according to datasheet not working as SPI1_NSS, have to use as GPIO, not as AF
+#define MICROPY_HW_SPI1_NSS                 (pin_D14) // Arduino Connector CN7-Pin16 (D10)
 #define MICROPY_HW_SPI1_SCK                 (pin_A5) // Arduino Connector CN7-Pin10 (D13)
 #define MICROPY_HW_SPI1_MISO                (pin_G9) // Arduino Connector CN7-Pin12 (D12)
 #define MICROPY_HW_SPI1_MOSI                (pin_B5) // Arduino Connector CN7-Pin14 (D11)
-#endif
 
 // USRSW is pulled low. Pressing the button makes the input go high.
 #define MICROPY_HW_USRSW_PIN                (pin_C13)

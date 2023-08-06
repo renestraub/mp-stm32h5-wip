@@ -185,6 +185,24 @@ static const DMA_InitTypeDef dma_init_struct_sdio = {
 #endif
 
 #if defined(MICROPY_HW_ENABLE_DAC) && MICROPY_HW_ENABLE_DAC
+#if defined(STM32H5)
+// Default parameters to dma_init() for DAC tx
+static const DMA_InitTypeDef dma_init_struct_dac = {
+    .Request = 0,   // set by dma_init_handle
+    .BlkHWRequest = DMA_BREQ_SINGLE_BURST,
+    .Direction = DMA_MEMORY_TO_PERIPH,
+    .SrcInc = DMA_SINC_INCREMENTED,
+    .DestInc = DMA_DINC_FIXED,
+    .SrcDataWidth = DMA_SRC_DATAWIDTH_BYTE,
+    .DestDataWidth = DMA_DEST_DATAWIDTH_WORD,
+    .Priority = DMA_HIGH_PRIORITY,
+    .SrcBurstLength = 1,
+    .DestBurstLength = 1,
+    .TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0,
+    .TransferEventMode = DMA_TCEM_BLOCK_TRANSFER,
+    .Mode = DMA_NORMAL,     // TODO: check if this needs a default or if it's a parameter to dma_nohal_init()
+};
+#else
 // Default parameters to dma_init() for DAC tx
 static const DMA_InitTypeDef dma_init_struct_dac = {
     #if defined(STM32F4) || defined(STM32F7)
@@ -206,6 +224,7 @@ static const DMA_InitTypeDef dma_init_struct_dac = {
     .PeriphBurst = DMA_PBURST_SINGLE,
     #endif
 };
+#endif
 #endif
 
 #if MICROPY_HW_ENABLE_DCMI
@@ -734,11 +753,10 @@ static const uint8_t dma_irqn[NSTREAM] = {
     GPDMA2_Channel6_IRQn,
     GPDMA2_Channel7_IRQn,
 };
-#if 0
 #if MICROPY_HW_ENABLE_DAC
-const dma_descr_t dma_DAC_1_TX = { DMA1_Channel3, DMA_REQUEST_DAC1_CHANNEL1, dma_id_2,   &dma_init_struct_dac };
-const dma_descr_t dma_DAC_2_TX = { DMA1_Channel4, DMA_REQUEST_DAC1_CHANNEL2, dma_id_3,   &dma_init_struct_dac };
-#endif
+// TODO: Check channels
+const dma_descr_t dma_DAC_1_TX = { GPDMA1_Channel2, GPDMA1_REQUEST_DAC1_CH1, dma_id_2,   &dma_init_struct_dac };
+const dma_descr_t dma_DAC_2_TX = { GPDMA1_Channel3, GPDMA1_REQUEST_DAC1_CH2, dma_id_3,   &dma_init_struct_dac };
 #endif
 
 #elif defined(STM32H7)
@@ -1625,7 +1643,77 @@ void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_a
     dma->CCR |= DMA_CCR_EN;
 }
 
-#elif defined(STM32G0) || defined(STM32H5) || defined(STM32WB) || defined(STM32WL)
+#elif defined(STM32H5)
+
+void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
+    DMA_Channel_TypeDef *dma = descr->instance;
+    const DMA_InitTypeDef *init = descr->init;
+
+    // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_init() id %d dma %p\n", descr->id, dma);
+
+    // Enable the DMA peripheral
+    dma_enable_clock(descr->id);
+
+    // TODO: Test other settings than those of DAC, i.e. SPI
+    dma->CCR = init->Priority;
+
+    // TODO: Check what values shall be taken from init template, and which from <config> parameter
+    uint32_t ctr1reg = 0;
+    ctr1reg |= init->SrcDataWidth;
+    ctr1reg |= init->SrcInc;
+    ctr1reg |= (((init->SrcBurstLength - 1) << DMA_CTR1_SBL_1_Pos)) & DMA_CTR1_SBL_1_Msk;
+    ctr1reg |= init->DestDataWidth;
+    ctr1reg |= init->DestInc;
+    ctr1reg |= (((init->DestBurstLength - 1) << DMA_CTR1_DBL_1_Pos)) & DMA_CTR1_DBL_1_Msk;
+    dma->CTR1 = ctr1reg;
+    // dma->CTR1 = DMA_SRC_DATAWIDTH_BYTE  | DMA_SINC_INCREMENTED | ((init->SrcBurstLength-1) << DMA_CTR1_SBL_1_Pos) |
+    //             DMA_DEST_DATAWIDTH_WORD | DMA_DINC_FIXED       | ((init->DestBurstLength-1) << DMA_CTR1_DBL_1_Pos);
+
+    uint32_t reqsel = descr->sub_instance;
+    // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_init() reqsel %u\n", reqsel);
+
+    uint32_t tmpreg = 0;
+    tmpreg |= init->BlkHWRequest; // DMA_BREQ_SINGLE_BURST;
+    tmpreg |= init->Direction; // DMA_MEMORY_TO_PERIPH;
+    tmpreg |= init->Mode; // DMA_NORMAL;
+    tmpreg |= init->TransferEventMode; // DMA_TCEM_BLOCK_TRANSFER;
+    tmpreg |= init->TransferAllocatedPort; // (DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0);
+    tmpreg |= (reqsel << DMA_CTR2_REQSEL_Pos) & DMA_CTR2_REQSEL_Msk;
+    dma->CTR2 = tmpreg;
+
+    mp_printf(MICROPY_ERROR_PRINTER, "CCR: %08x CTR1: %08x CTR2: %08x\n", dma->CCR, dma->CTR1, dma->CTR2);
+
+    dma->CBR1 = 0;
+    // TODO: implement
+    // dma->CTR3 = 0; // CH 6&7 only, No (extra) address increment after burst
+    // dma->CBR2 = 0; // CH 6&7 only,
+    dma->CLBAR = 0; // reset value
+    dma->CLLR = 0; // reset value
+}
+
+void dma_nohal_deinit(const dma_descr_t *descr) {
+    DMA_Channel_TypeDef *dma = descr->instance;
+    // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_deinit() id %d dma %p\n", descr->id, dma);
+
+    dma->CCR &= ~DMA_CCR_EN;
+    dma->CCR = 0;
+    dma_deinit(descr);
+}
+
+void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_addr, uint16_t len) {
+    DMA_Channel_TypeDef *dma = descr->instance;
+    // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_start() id %d dma %p\n", descr->id, dma);
+    // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_start() src: %p dst %p len %u\n", src_addr, dst_addr, len);
+
+    dma->CBR1 = (len << DMA_CBR1_BNDT_Pos) & DMA_CBR1_BNDT_Msk;
+    dma->CDAR = dst_addr;
+    dma->CSAR = src_addr;
+
+    // mp_printf(MICROPY_ERROR_PRINTER, "%08x %08x %08x\n", dma->CBR1, dma->CDAR, dma->CSAR);
+    dma->CCR |= DMA_CCR_EN;
+}
+
+#elif defined(STM32G0) defined(STM32WB) || defined(STM32WL)
 
 // These functions are currently not implemented or needed for this MCU.
 
