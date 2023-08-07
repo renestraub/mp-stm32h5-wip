@@ -1645,6 +1645,19 @@ void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_a
 
 #elif defined(STM32H5)
 
+// Fully setup DMA linked list entry
+typedef struct _dma_ll_full_t {
+    __IO uint32_t CTR1;
+    __IO uint32_t CTR2;
+    __IO uint32_t CBR1;
+    __IO uint32_t CSAR;
+    __IO uint32_t CDAR;
+    __IO uint32_t CLLR;
+} dma_ll_full_t;
+
+// Align LL entry to 32 bytes to ensure it never crosses a 64 kB boundary
+__ALIGNED(32) static volatile dma_ll_full_t lli1;  
+
 void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
     DMA_Channel_TypeDef *dma = descr->instance;
     const DMA_InitTypeDef *init = descr->init;
@@ -1655,6 +1668,9 @@ void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
     dma_enable_clock(descr->id);
 
     // TODO: Test other settings than those of DAC, i.e. SPI
+    // - LSM = 0, normal linked list mode
+    // - No interrupts
+    // - Not suspended, out of reset, disabled
     dma->CCR = init->Priority;
 
     // TODO: Check what values shall be taken from init template, and which from <config> parameter
@@ -1665,30 +1681,57 @@ void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
     ctr1reg |= init->DestDataWidth;
     ctr1reg |= init->DestInc;
     ctr1reg |= (((init->DestBurstLength - 1) << DMA_CTR1_DBL_1_Pos)) & DMA_CTR1_DBL_1_Msk;
-    dma->CTR1 = ctr1reg;
-    // dma->CTR1 = DMA_SRC_DATAWIDTH_BYTE  | DMA_SINC_INCREMENTED | ((init->SrcBurstLength-1) << DMA_CTR1_SBL_1_Pos) |
-    //             DMA_DEST_DATAWIDTH_WORD | DMA_DINC_FIXED       | ((init->DestBurstLength-1) << DMA_CTR1_DBL_1_Pos);
+    // dma->CTR1 = ctr1reg;
 
     uint32_t reqsel = descr->sub_instance;
     // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_init() reqsel %u\n", reqsel);
 
-    uint32_t tmpreg = 0;
-    tmpreg |= init->BlkHWRequest; // DMA_BREQ_SINGLE_BURST;
-    tmpreg |= init->Direction; // DMA_MEMORY_TO_PERIPH;
-    tmpreg |= init->Mode; // DMA_NORMAL;
-    tmpreg |= init->TransferEventMode; // DMA_TCEM_BLOCK_TRANSFER;
-    tmpreg |= init->TransferAllocatedPort; // (DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0);
-    tmpreg |= (reqsel << DMA_CTR2_REQSEL_Pos) & DMA_CTR2_REQSEL_Msk;
-    dma->CTR2 = tmpreg;
+    uint32_t ctr2reg = 0;
+    ctr2reg |= init->BlkHWRequest; // DMA_BREQ_SINGLE_BURST;
+    ctr2reg |= init->Direction; // DMA_MEMORY_TO_PERIPH;
+    ctr2reg |= init->Mode; // DMA_NORMAL;
+    ctr2reg |= init->TransferEventMode; // DMA_TCEM_BLOCK_TRANSFER;
+    ctr2reg |= init->TransferAllocatedPort; // (DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0);
+    ctr2reg |= (reqsel << DMA_CTR2_REQSEL_Pos) & DMA_CTR2_REQSEL_Msk;
+    // dma->CTR2 = ctr2reg;
 
-    mp_printf(MICROPY_ERROR_PRINTER, "CCR: %08x CTR1: %08x CTR2: %08x\n", dma->CCR, dma->CTR1, dma->CTR2);
+    // mp_printf(MICROPY_ERROR_PRINTER, "CCR: %08x CTR1: %08x CTR2: %08x\n", dma->CCR, dma->CTR1, dma->CTR2);
 
-    dma->CBR1 = 0;
-    // TODO: implement
-    // dma->CTR3 = 0; // CH 6&7 only, No (extra) address increment after burst
-    // dma->CBR2 = 0; // CH 6&7 only,
-    dma->CLBAR = 0; // reset value
-    dma->CLLR = 0; // reset value
+    dma->CBR1 = 0;  // must be zero to have DMA engine fetch first LL immediately
+    // dma->CSAR = 0;
+    // dma->CDAR = 0;
+
+    // TODO: implement 2-D DMA regs
+    // dma->CTR3 = 0; // CH 6 & 7 only, No (extra) address increment after burst
+    // dma->CBR2 = 0; // CH 6 & 7 only,
+
+    // If circular mode is requested, attach a single linked list DMA entry pointing to itself.
+    // Otherwise leave away linked list entry to create a single shot from DMA registers.
+
+    // Attach linked list entry
+    dma->CLBAR = (uint32_t)(&lli1) & 0xffff0000UL;  // upper 16 bits of linked list addresses
+
+    uint32_t cllrreg = 0;
+    cllrreg |= (DMA_CLLR_UT1 | DMA_CLLR_UT2 | DMA_CLLR_UB1 | DMA_CLLR_USA | DMA_CLLR_UDA | DMA_CLLR_ULL);
+    cllrreg |= (uint32_t)(&lli1) & 0x0000fffcUL;    // lower 16 bits of linked list entry address
+    dma->CLLR = cllrreg;
+
+    // Setup linked list entry
+    lli1.CTR1 = ctr1reg;
+    lli1.CTR2 = ctr2reg;
+    // lli1.CBR1 = 0;          // set in dma_nohal_start()
+    // lli1.CSAR = 0;          // set in dma_nohal_start()
+    // lli1.CDAR = 0;          // set in dma_nohal_start()
+
+    if ((config & DMA_CIRCULAR) == DMA_CIRCULAR) {
+        lli1.CLLR = cllrreg;    // pointer to itself for circular operation
+
+        // mp_printf(MICROPY_ERROR_PRINTER, "Circular %08x\n", lli1.CLLR);
+    } else {
+        lli1.CLLR = 0;  // end of linked list chain
+
+        // mp_printf(MICROPY_ERROR_PRINTER, "Single shot %08x\n", lli1.CLLR);
+    }
 }
 
 void dma_nohal_deinit(const dma_descr_t *descr) {
@@ -1705,9 +1748,14 @@ void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_a
     // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_start() id %d dma %p\n", descr->id, dma);
     // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_start() src: %p dst %p len %u\n", src_addr, dst_addr, len);
 
-    dma->CBR1 = (len << DMA_CBR1_BNDT_Pos) & DMA_CBR1_BNDT_Msk;
-    dma->CDAR = dst_addr;
-    dma->CSAR = src_addr;
+    // TODO: Could leave dma-> registers out and work always with the linked list entry
+    // dma->CBR1 = (len << DMA_CBR1_BNDT_Pos) & DMA_CBR1_BNDT_Msk;
+    // dma->CSAR = src_addr;
+    // dma->CDAR = dst_addr;
+
+    lli1.CBR1 = (len << DMA_CBR1_BNDT_Pos) & DMA_CBR1_BNDT_Msk;
+    lli1.CSAR = src_addr;
+    lli1.CDAR = dst_addr;
 
     // mp_printf(MICROPY_ERROR_PRINTER, "%08x %08x %08x\n", dma->CBR1, dma->CDAR, dma->CSAR);
     dma->CCR |= DMA_CCR_EN;
