@@ -26,7 +26,121 @@
 #ifndef MICROPY_INCLUDED_STM32_MPU_H
 #define MICROPY_INCLUDED_STM32_MPU_H
 
-#if defined(STM32F7) || defined(STM32H7) || defined(MICROPY_HW_ETH_MDC)
+#if defined(STM32H5)
+
+#define MPU_REGION_SIG      (MPU_REGION_NUMBER0)
+#define MPU_REGION_ETH      (MPU_REGION_NUMBER1)
+
+#define ST_DEVICE_SIGNATURE_BASE (0x08fff800)
+#define ST_DEVICE_SIGNATURE_LIMIT (0x08ffffff)
+
+#define ETH_RANGE_SIZE      (16*1024)
+#define MPU_CONFIG_ETH(size) ( \
+    0 \
+    )
+
+#if 0
+#define MPU_CONFIG_ETH(size) ( \
+    MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RASR_XN_Pos \
+        | MPU_REGION_FULL_ACCESS << MPU_RASR_AP_Pos \
+        | MPU_TEX_LEVEL1 << MPU_RASR_TEX_Pos \
+        | MPU_ACCESS_SHAREABLE << MPU_RASR_S_Pos \
+        | MPU_ACCESS_NOT_CACHEABLE << MPU_RASR_C_Pos \
+        | MPU_ACCESS_NOT_BUFFERABLE << MPU_RASR_B_Pos \
+        | 0x00 << MPU_RASR_SRD_Pos \
+    )
+#endif
+    // MPU->RBAR = (ST_DEVICE_SIGNATURE_BASE & MPU_RBAR_BASE_Msk)
+    //     | MPU_ACCESS_NOT_SHAREABLE << MPU_RBAR_SH_Pos
+    //     | MPU_REGION_ALL_RW << MPU_RBAR_AP_Pos
+    //     | MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RBAR_XN_Pos;
+    // MPU->RLAR = 
+    //     | MPU_ATTRIBUTES_NUMBER0 << MPU_RLAR_AttrIndx_Pos
+
+
+static inline void mpu_init(void) {
+
+    // Configure attribute 0, inner-outer non-cacheable (=0x44).
+    __DMB();
+    MPU->MAIR0 = (MPU->MAIR0 & ~MPU_MAIR0_Attr0_Msk)
+        | 0x44 << MPU_MAIR0_Attr0_Pos;
+
+    // Configure region 0 to make device signature non-cacheable.
+    // This allows the memory region at ST_DEVICE_SIGNATURE_BASE to be readable.
+    __DMB();
+    MPU->RNR = MPU_REGION_NUMBER0;
+    MPU->RBAR = (ST_DEVICE_SIGNATURE_BASE & MPU_RBAR_BASE_Msk)
+        | MPU_ACCESS_NOT_SHAREABLE << MPU_RBAR_SH_Pos
+        | MPU_REGION_ALL_RW << MPU_RBAR_AP_Pos
+        | MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RBAR_XN_Pos;
+    MPU->RLAR = (ST_DEVICE_SIGNATURE_LIMIT & MPU_RLAR_LIMIT_Msk)
+        | MPU_ATTRIBUTES_NUMBER0 << MPU_RLAR_AttrIndx_Pos
+        | MPU_REGION_ENABLE << MPU_RLAR_EN_Pos;
+
+    // Enable the MPU.
+    MPU->CTRL = MPU_PRIVILEGED_DEFAULT | MPU_CTRL_ENABLE_Msk;
+    SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
+    __DMB();
+    __ISB();
+}
+
+static inline uint32_t mpu_config_start(void) {
+    return disable_irq();
+}
+
+
+    // uint32_t irq_state = mpu_config_start();
+    // mpu_config_region(MPU_REGION_ETH, (uint32_t)&eth_dma, MPU_CONFIG_ETH(MPU_REGION_SIZE_16KB));
+    // mpu_config_end(irq_state);
+
+static inline void mpu_config_region(uint32_t region, uint32_t base_addr, uint32_t attr_size) {
+
+    if (region == MPU_REGION_ETH) {
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() ETH %08x %08x\n", base_addr, attr_size);
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() ETH %08x\n", base_addr+16*1024-1);
+
+        __DMB();
+        // Configure region 1 to make DMA memory non-cacheable.
+        MPU->MAIR0 = (MPU->MAIR0 & ~MPU_MAIR0_Attr1_Msk)
+            | 0x44 << MPU_MAIR0_Attr1_Pos;
+        __DMB();
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() MAIR0 %08x\n", MPU->MAIR0);
+
+        // RBAR
+        // BASE          Bits [31:5] of base
+        // SH[4:3]  00 = Non-shareable.
+        // AP[2:1]  01 = Read/write by any privilege level.
+        // XN[0]:    1 = No execution
+
+        // RLAR
+        // LIMIT         Limit address. Contains bits[31:5] of the upper inclusive limit of the selected MPU memory region.
+        // AT[3:1] 001 = Attribute 1
+        // EN[0]     1 = Enabled
+        MPU->RNR = region;
+        MPU->RBAR = (base_addr & MPU_RBAR_BASE_Msk)
+            | MPU_ACCESS_NOT_SHAREABLE << MPU_RBAR_SH_Pos
+            | MPU_REGION_ALL_RW << MPU_RBAR_AP_Pos
+            | MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RBAR_XN_Pos;
+        MPU->RLAR = ((base_addr + ETH_RANGE_SIZE - 1) & MPU_RLAR_LIMIT_Msk)
+            | MPU_ATTRIBUTES_NUMBER1 << MPU_RLAR_AttrIndx_Pos
+            | MPU_REGION_ENABLE << MPU_RLAR_EN_Pos;
+
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() RNR %08x\n", MPU->RNR);
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() RBAR %08x\n", MPU->RBAR);
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() RLAR %08x\n", MPU->RLAR);
+    }
+    __DMB();
+}
+
+static inline void mpu_config_end(uint32_t irq_state) {
+    __ISB();
+    __DSB();
+    __DMB();
+    enable_irq(irq_state);
+}
+
+
+#elif defined(STM32F7) || defined(STM32H7) || defined(MICROPY_HW_ETH_MDC)
 
 #define MPU_REGION_ETH      (MPU_REGION_NUMBER0)
 #define MPU_REGION_QSPI1    (MPU_REGION_NUMBER1)
@@ -86,6 +200,7 @@ static inline void mpu_config_region(uint32_t region, uint32_t base_addr, uint32
     MPU->RNR = region;
     MPU->RBAR = base_addr;
     MPU->RASR = attr_size;
+    __DMB();
 }
 
 static inline void mpu_config_end(uint32_t irq_state) {
@@ -93,36 +208,6 @@ static inline void mpu_config_end(uint32_t irq_state) {
     __DSB();
     __DMB();
     enable_irq(irq_state);
-}
-
-#elif defined(STM32H5)
-
-#define ST_DEVICE_SIGNATURE_BASE (0x08fff800)
-#define ST_DEVICE_SIGNATURE_LIMIT (0x08ffffff)
-
-static inline void mpu_init(void) {
-    // Configure attribute 0, inner-outer non-cacheable (=0x44).
-    __DMB();
-    MPU->MAIR0 = (MPU->MAIR0 & ~MPU_MAIR0_Attr0_Msk)
-        | 0x44 << MPU_MAIR0_Attr0_Pos;
-
-    // Configure region 0 to make device signature non-cacheable.
-    // This allows the memory region at ST_DEVICE_SIGNATURE_BASE to be readable.
-    __DMB();
-    MPU->RNR = MPU_REGION_NUMBER0;
-    MPU->RBAR = (ST_DEVICE_SIGNATURE_BASE & MPU_RBAR_BASE_Msk)
-        | MPU_ACCESS_NOT_SHAREABLE << MPU_RBAR_SH_Pos
-        | MPU_REGION_ALL_RW << MPU_RBAR_AP_Pos
-        | MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RBAR_XN_Pos;
-    MPU->RLAR = (ST_DEVICE_SIGNATURE_LIMIT & MPU_RLAR_LIMIT_Msk)
-        | MPU_ATTRIBUTES_NUMBER0 << MPU_RLAR_AttrIndx_Pos
-        | MPU_REGION_ENABLE << MPU_RLAR_EN_Pos;
-
-    // Enable the MPU.
-    MPU->CTRL = MPU_PRIVILEGED_DEFAULT | MPU_CTRL_ENABLE_Msk;
-    SCB->SHCSR |= SCB_SHCSR_MEMFAULTENA_Msk;
-    __DMB();
-    __ISB();
 }
 
 #else

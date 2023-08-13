@@ -221,7 +221,10 @@ STATIC pyb_dac_obj_t pyb_dac_obj[2];
 STATIC void pyb_dac_reconfigure(pyb_dac_obj_t *self, uint32_t cr, uint32_t outbuf, uint32_t value) {
     bool restart = false;
     const uint32_t cr_mask = DAC_CR_DMAEN1 | DAC_CR_MAMP1 | DAC_CR_WAVE1 | DAC_CR_TSEL1 | DAC_CR_TEN1 | DAC_CR_EN1;
+
+    // mp_printf(MICROPY_ERROR_PRINTER, "pyb_dac_reconfigure()\n");
     if (((DAC->CR >> self->dac_channel) & cr_mask) != (cr | DAC_CR_EN1)) {
+        // mp_printf(MICROPY_ERROR_PRINTER, "pyb_dac_reconfigure() 111\n");
         const dma_descr_t *tx_dma_descr;
         if (self->dac_channel == DAC_CHANNEL_1) {
             tx_dma_descr = &dma_DAC_1_TX;
@@ -236,6 +239,7 @@ STATIC void pyb_dac_reconfigure(pyb_dac_obj_t *self, uint32_t cr, uint32_t outbu
     }
     dac_set_value(self->dac_channel, DAC_ALIGN_12B_R, value);
     if (restart) {
+        // mp_printf(MICROPY_ERROR_PRINTER, "pyb_dac_reconfigure() 222\n");
         dac_start(self->dac_channel);
     }
 }

@@ -20,9 +20,9 @@ endif
 
 # MicroPython settings
 # TODO: Not yet working due to missing CM33 MPU support
-# MICROPY_PY_LWIP = 1
-# MICROPY_PY_SSL = 1
-# MICROPY_SSL_MBEDTLS = 1
+MICROPY_PY_LWIP = 1
+MICROPY_PY_SSL = 1
+MICROPY_SSL_MBEDTLS = 1
 
 # TODO
 # FROZEN_MANIFEST ?= $(BOARD_DIR)/manifest.py

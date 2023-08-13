@@ -200,7 +200,7 @@ static const DMA_InitTypeDef dma_init_struct_dac = {
     .DestBurstLength = 1,
     .TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0,
     .TransferEventMode = DMA_TCEM_BLOCK_TRANSFER,
-    .Mode = DMA_NORMAL,     // TODO: check if this needs a default or if it's a parameter to dma_nohal_init()
+    .Mode = DMA_NORMAL, // DMA_NORMAL or DMA_PFCTRL (peripheral flow control mode)
 };
 #else
 // Default parameters to dma_init() for DAC tx
@@ -1645,7 +1645,7 @@ void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_a
 
 #elif defined(STM32H5)
 
-// Fully setup DMA linked list entry
+// Fully setup GPDMA linked list entry
 typedef struct _dma_ll_full_t {
     __IO uint32_t CTR1;
     __IO uint32_t CTR2;
@@ -1656,7 +1656,7 @@ typedef struct _dma_ll_full_t {
 } dma_ll_full_t;
 
 // Align LL entry to 32 bytes to ensure it never crosses a 64 kB boundary
-__ALIGNED(32) static volatile dma_ll_full_t lli1;  
+__ALIGNED(32) static __IO dma_ll_full_t lli1;
 
 void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
     DMA_Channel_TypeDef *dma = descr->instance;
@@ -1681,25 +1681,25 @@ void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
     ctr1reg |= init->DestDataWidth;
     ctr1reg |= init->DestInc;
     ctr1reg |= (((init->DestBurstLength - 1) << DMA_CTR1_DBL_1_Pos)) & DMA_CTR1_DBL_1_Msk;
-    // dma->CTR1 = ctr1reg;
-
-    uint32_t reqsel = descr->sub_instance;
-    // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_init() reqsel %u\n", reqsel);
 
     uint32_t ctr2reg = 0;
-    ctr2reg |= init->BlkHWRequest; // DMA_BREQ_SINGLE_BURST;
-    ctr2reg |= init->Direction; // DMA_MEMORY_TO_PERIPH;
+    ctr2reg |= init->BlkHWRequest;
+    ctr2reg |= init->Direction;
     ctr2reg |= init->Mode; // DMA_NORMAL;
-    ctr2reg |= init->TransferEventMode; // DMA_TCEM_BLOCK_TRANSFER;
-    ctr2reg |= init->TransferAllocatedPort; // (DMA_SRC_ALLOCATED_PORT0 | DMA_DEST_ALLOCATED_PORT0);
+    ctr2reg |= init->TransferEventMode;
+    ctr2reg |= init->TransferAllocatedPort;
+    uint32_t reqsel = descr->sub_instance;
+    mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_init() reqsel %u\n", reqsel);
+    mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_init() reqsel %u\n", init->Request);
     ctr2reg |= (reqsel << DMA_CTR2_REQSEL_Pos) & DMA_CTR2_REQSEL_Msk;
+
+    // dma->CTR1 = ctr1reg;
     // dma->CTR2 = ctr2reg;
+    dma->CBR1 = 0;  // set length to zero, so that GPDMA engine fetches first LL entry immediately
+    dma->CSAR = 0;
+    dma->CDAR = 0;
 
     // mp_printf(MICROPY_ERROR_PRINTER, "CCR: %08x CTR1: %08x CTR2: %08x\n", dma->CCR, dma->CTR1, dma->CTR2);
-
-    dma->CBR1 = 0;  // must be zero to have DMA engine fetch first LL immediately
-    // dma->CSAR = 0;
-    // dma->CDAR = 0;
 
     // TODO: implement 2-D DMA regs
     // dma->CTR3 = 0; // CH 6 & 7 only, No (extra) address increment after burst
@@ -1716,20 +1716,15 @@ void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
     cllrreg |= (uint32_t)(&lli1) & 0x0000fffcUL;    // lower 16 bits of linked list entry address
     dma->CLLR = cllrreg;
 
-    // Setup linked list entry
+    // Setup linked list control registers. Length and adresses are set in dma_nohal_start()
     lli1.CTR1 = ctr1reg;
     lli1.CTR2 = ctr2reg;
-    // lli1.CBR1 = 0;          // set in dma_nohal_start()
-    // lli1.CSAR = 0;          // set in dma_nohal_start()
-    // lli1.CDAR = 0;          // set in dma_nohal_start()
 
     if ((config & DMA_CIRCULAR) == DMA_CIRCULAR) {
         lli1.CLLR = cllrreg;    // pointer to itself for circular operation
-
         // mp_printf(MICROPY_ERROR_PRINTER, "Circular %08x\n", lli1.CLLR);
     } else {
-        lli1.CLLR = 0;  // end of linked list chain
-
+        lli1.CLLR = 0;  // No next node, this is end of linked list chain
         // mp_printf(MICROPY_ERROR_PRINTER, "Single shot %08x\n", lli1.CLLR);
     }
 }
@@ -1737,6 +1732,30 @@ void dma_nohal_init(const dma_descr_t *descr, uint32_t config) {
 void dma_nohal_deinit(const dma_descr_t *descr) {
     DMA_Channel_TypeDef *dma = descr->instance;
     // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_deinit() id %d dma %p\n", descr->id, dma);
+
+    if ((dma->CCR & DMA_CCR_EN) == DMA_CCR_EN) {
+        // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_deinit() is running\n");
+    
+        // Suspend currently running, channel. Wait until done then reset to clear FIFOs.
+        dma->CCR |= DMA_CCR_SUSP;
+
+        // uint32_t t0 = mp_hal_ticks_ms();
+        // while ((dma->CR & DMA_SxCR_EN) && mp_hal_ticks_ms() - t0 < 100) {
+        // }
+        uint32_t t0 = mp_hal_ticks_ms();
+        while ((dma->CSR & DMA_CSR_SUSPF) != DMA_CSR_SUSPF) {
+            // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_deinit() wait for suspend\n");
+            if (mp_hal_ticks_ms() - t0 >= 100) {
+                // Timeout.. Abort to avoid blocking system forever
+                break;
+            }
+        }
+
+        dma->CCR |= DMA_CCR_RESET;
+    }
+    //  else {
+    //     mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_deinit() is stopped\n");
+    // }
 
     dma->CCR &= ~DMA_CCR_EN;
     dma->CCR = 0;
@@ -1748,11 +1767,6 @@ void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_a
     // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_start() id %d dma %p\n", descr->id, dma);
     // mp_printf(MICROPY_ERROR_PRINTER, "dma_nohal_start() src: %p dst %p len %u\n", src_addr, dst_addr, len);
 
-    // TODO: Could leave dma-> registers out and work always with the linked list entry
-    // dma->CBR1 = (len << DMA_CBR1_BNDT_Pos) & DMA_CBR1_BNDT_Msk;
-    // dma->CSAR = src_addr;
-    // dma->CDAR = dst_addr;
-
     lli1.CBR1 = (len << DMA_CBR1_BNDT_Pos) & DMA_CBR1_BNDT_Msk;
     lli1.CSAR = src_addr;
     lli1.CDAR = dst_addr;
@@ -1761,7 +1775,7 @@ void dma_nohal_start(const dma_descr_t *descr, uint32_t src_addr, uint32_t dst_a
     dma->CCR |= DMA_CCR_EN;
 }
 
-#elif defined(STM32G0) defined(STM32WB) || defined(STM32WL)
+#elif defined(STM32G0) || defined(STM32WB) || defined(STM32WL)
 
 // These functions are currently not implemented or needed for this MCU.
 

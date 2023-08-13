@@ -29,8 +29,8 @@
 typedef struct _dma_descr_t dma_descr_t;
 
 #if defined(STM32H5)
-// STM32H5 GPDMA doesn't feature circular mode directly, so define doesn't exist in stm32 driver header.
-// Define it here to make users like DAC driver happy.
+// STM32H5 GPDMA doesn't feature circular mode directly, so define doesn't exist in
+// stm32 driver header. Define it here to make users like DAC driver happy.
 #define DMA_CIRCULAR 0x00000001
 #endif
 

@@ -80,7 +80,7 @@
 #define MICROPY_HW_USB_MAIN_DEV             (USB_PHY_FS_ID)
 
 // Ethernet via RMII
-#if 0   // TODO: Not yet working due to missing CM33 MPU support
+#if 1   // TODO: Not yet working due to missing CM33 MPU support
 #define MICROPY_HW_ETH_MDC          (pin_C1)
 #define MICROPY_HW_ETH_MDIO         (pin_A2)
 #define MICROPY_HW_ETH_RMII_REF_CLK (pin_A1)
