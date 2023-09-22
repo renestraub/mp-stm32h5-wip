@@ -75,7 +75,6 @@
 #define TX_DESCR_2_B1L_Pos      (0)
 #define TX_DESCR_2_B1L_Msk      (0x3fff << TX_DESCR_2_B1L_Pos)
 #elif defined(STM32H5)
-// TODO: Check and fix STM32H5
 #define RX_DESCR_3_OWN_Pos      (31)
 #define RX_DESCR_3_IOC_Pos      (30)
 #define RX_DESCR_3_BUF1V_Pos    (24)
@@ -174,7 +173,7 @@ STATIC void eth_phy_write(uint32_t reg, uint32_t val) {
 }
 
 STATIC uint32_t eth_phy_read(uint32_t reg) {
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_phy_read() %d\n", reg);
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_phy_read() %d\n", reg);
 
     #if defined(STM32H7) || defined(STM32H5)
     while (ETH->MACMDIOAR & ETH_MACMDIOAR_MB) {
@@ -189,9 +188,8 @@ STATIC uint32_t eth_phy_read(uint32_t reg) {
     while (ETH->MACMDIOAR & ETH_MACMDIOAR_MB) {
     }
 
-    uint32_t val = ETH->MACMDIODR;
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_phy_read() %08x\n", val);
-
+    // uint32_t val = ETH->MACMDIODR;
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_phy_read() %08x\n", val);
     return ETH->MACMDIODR;
     #else
     while (ETH->MACMIIAR & ETH_MACMIIAR_MB) {
@@ -201,6 +199,7 @@ STATIC uint32_t eth_phy_read(uint32_t reg) {
     ETH->MACMIIAR = ar;
     while (ETH->MACMIIAR & ETH_MACMIIAR_MB) {
     }
+    return ETH->MACMIIDR;
     #endif
 }
 
@@ -242,7 +241,11 @@ STATIC int eth_mac_init(eth_t *self) {
 
     // Configure MPU
     uint32_t irq_state = mpu_config_start();
+    #if defined(STM32H5)
+    mpu_config_region(MPU_REGION_ETH, (uint32_t)&eth_dma, MPU_CONFIG_ETH(16 * 1024));
+    #else
     mpu_config_region(MPU_REGION_ETH, (uint32_t)&eth_dma, MPU_CONFIG_ETH(MPU_REGION_SIZE_16KB));
+    #endif
     mpu_config_end(irq_state);
 
     // Enable peripheral clock
@@ -306,7 +309,7 @@ STATIC int eth_mac_init(eth_t *self) {
     ETH_SOFT_RESET(ETH);
     mp_hal_delay_ms(2);
 
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 3\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 3\n");
 
     // Wait for soft reset to finish
     uint32_t t0 = mp_hal_ticks_ms();
@@ -316,7 +319,7 @@ STATIC int eth_mac_init(eth_t *self) {
         }
     }
 
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 4\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 4\n");
 
     // Set MII clock range
     uint32_t hclk = HAL_RCC_GetHCLKFreq();
@@ -366,7 +369,7 @@ STATIC int eth_mac_init(eth_t *self) {
     ETH->MACMIIAR = cr_div;
     #endif
 
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 5\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 5\n");
 
     #if defined(STM32H7) || defined(STM32H5)
     // don't skip 32bit words since our descriptors are continuous in memory
@@ -412,7 +415,7 @@ STATIC int eth_mac_init(eth_t *self) {
     // Get register with link status
     uint16_t phy_scsr = eth_phy_read(PHY_SCSR);
 
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 6\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_mac_init() 6\n");
 
     // Burst mode configuration
     #if defined(STM32H7) || defined(STM32H5)
@@ -480,7 +483,6 @@ STATIC int eth_mac_init(eth_t *self) {
         eth_dma.tx_descr[i].tdes2 = TX_BUF_SIZE & TX_DESCR_2_B1L_Msk;
         eth_dma.tx_descr[i].tdes3 = 0;
         #elif defined(STM32H5)
-        // TODO: STM32H5 
         eth_dma.tx_descr[i].tdes0 = 0;
         eth_dma.tx_descr[i].tdes1 = 0;
         eth_dma.tx_descr[i].tdes2 = TX_BUF_SIZE & TX_DESCR_2_B1L_Msk;
@@ -604,7 +606,6 @@ STATIC int eth_tx_buf_get(size_t len, uint8_t **buf) {
             break;
         }
         #elif defined(STM32H5)
-        // TODO: STM32H5
         if (!(tx_descr->tdes3 & (1 << TX_DESCR_3_OWN_Pos))) {
             break;
         }
@@ -618,14 +619,13 @@ STATIC int eth_tx_buf_get(size_t len, uint8_t **buf) {
         }
     }
 
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_tx_buf_get()\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_tx_buf_get()\n");
 
     #if defined(STM32H7)
     // Update TX descriptor with length and buffer pointer
     *buf = &eth_dma.tx_buf[eth_dma.tx_descr_idx * TX_BUF_SIZE];
     tx_descr->tdes2 = len & TX_DESCR_2_B1L_Msk;
     tx_descr->tdes0 = (uint32_t)*buf;
-    // TODO: STM32H5
     #elif defined(STM32H5)
     *buf = &eth_dma.tx_buf[eth_dma.tx_descr_idx * TX_BUF_SIZE];
     tx_descr->tdes2 = len & TX_DESCR_2_B1L_Msk;
@@ -642,7 +642,7 @@ STATIC int eth_tx_buf_get(size_t len, uint8_t **buf) {
 }
 
 STATIC int eth_tx_buf_send(void) {
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_tx_buf_send()\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_tx_buf_send()\n");
 
     // Get TX descriptor and move to next one
     eth_dma_tx_descr_t *tx_descr = &eth_dma.tx_descr[eth_dma.tx_descr_idx];
@@ -656,13 +656,12 @@ STATIC int eth_tx_buf_send(void) {
             | 1 << TX_DESCR_3_FD_Pos // first segment
             | 3 << TX_DESCR_3_CIC_Pos // enable all checksums inserted by hardware
     ;
-    // TODO: STM32H5
     #elif defined(STM32H5)
     tx_descr->tdes3 =
         1 << TX_DESCR_3_OWN_Pos     // owned by DMA
             | 1 << TX_DESCR_3_LD_Pos // last segment
             | 1 << TX_DESCR_3_FD_Pos // first segment
-            | 3 << TX_DESCR_3_CIC_Pos // enable all checksums (IP Hdr, Payload) inserted by hardware
+            | 3 << TX_DESCR_3_CIC_Pos // enable all checksums (IP hdr, payload) inserted by hardware
     ;
     #else
     tx_descr->tdes0 =
@@ -706,7 +705,6 @@ STATIC void eth_dma_rx_free(void) {
     rx_descr->rdes3 |= 1 << RX_DESCR_3_BUF1V_Pos; // buf 1 address valid
     rx_descr->rdes3 |= 1 << RX_DESCR_3_IOC_Pos; // Interrupt Enabled on Completion
     #elif defined(STM32H5)
-    // TODO: STM32H5
     rx_descr->rdes0 = (uint32_t)buf;
     rx_descr->rdes3 = 1 << RX_DESCR_3_OWN_Pos;  // owned by DMA
     rx_descr->rdes3 |= 1 << RX_DESCR_3_BUF1V_Pos; // buf 1 address valid
@@ -748,7 +746,6 @@ void ETH_IRQHandler(void) {
         #endif
         for (;;) {
             #if defined(STM32H7)
-            // TODO: STM32H5
             eth_dma_rx_descr_t *rx_descr_l = &eth_dma.rx_descr[eth_dma.rx_descr_idx];
             if (rx_descr_l->rdes3 & (1 << RX_DESCR_3_OWN_Pos)) {
                 // No more RX descriptors ready to read
@@ -771,18 +768,15 @@ void ETH_IRQHandler(void) {
             // Get RX buffer containing new frame
             #if defined(STM32H7)
             size_t len = (rx_descr_l->rdes3 & RX_DESCR_3_PL_Msk);
-            // TODO: STM32H5
             #elif defined(STM32H5)
             size_t len = (rx_descr_l->rdes3 & RX_DESCR_3_PL_Msk);
             #else
             size_t len = (rx_descr->rdes0 & RX_DESCR_0_FL_Msk) >> RX_DESCR_0_FL_Pos;
             #endif
-
             len -= 4; // discard CRC at end
             #if defined(STM32H7)
             uint8_t *buf = &eth_dma.rx_buf[eth_dma.rx_descr_idx * RX_BUF_SIZE];
             #elif defined(STM32H5)
-            // TODO: STM32H5
             uint8_t *buf = &eth_dma.rx_buf[eth_dma.rx_descr_idx * RX_BUF_SIZE];
             #else
             uint8_t *buf = (uint8_t *)rx_descr->rdes2;
@@ -826,7 +820,7 @@ STATIC void eth_trace(eth_t *self, size_t len, const void *data, unsigned int fl
 STATIC err_t eth_netif_output(struct netif *netif, struct pbuf *p) {
     // This function should always be called from a context where PendSV-level IRQs are disabled
 
-    mp_printf(MICROPY_ERROR_PRINTER, "eth_netif_output()\n");
+    // mp_printf(MICROPY_ERROR_PRINTER, "eth_netif_output()\n");
 
     LINK_STATS_INC(link.xmit);
     eth_trace(netif->state, (size_t)-1, p, NETUTILS_TRACE_IS_TX | NETUTILS_TRACE_NEWLINE);

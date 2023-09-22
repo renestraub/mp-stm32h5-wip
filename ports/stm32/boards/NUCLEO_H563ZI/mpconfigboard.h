@@ -45,8 +45,8 @@
 #define MICROPY_HW_UART3_TX                 (pin_D8) // SB23: ST-Link
 #define MICROPY_HW_UART3_RX                 (pin_D9) // SB18: ST-Link
 
-// TODO: required? routes to Arduino connector
-#define MICROPY_HW_UART_REPL                PYB_UART_1
+// Connect REPL to UART3 which is provided on ST-Link USB interface
+#define MICROPY_HW_UART_REPL                PYB_UART_3
 #define MICROPY_HW_UART_REPL_BAUD           115200
 
 // I2C buses

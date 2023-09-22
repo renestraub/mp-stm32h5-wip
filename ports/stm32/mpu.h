@@ -34,32 +34,13 @@
 #define ST_DEVICE_SIGNATURE_BASE (0x08fff800)
 #define ST_DEVICE_SIGNATURE_LIMIT (0x08ffffff)
 
-#define ETH_RANGE_SIZE      (16*1024)
+// STM32H5 Cortex-M33 MPU works differently from older cores.
+// Macro only takes region size in bytes, Attributes are coded in mpu_config_region().
 #define MPU_CONFIG_ETH(size) ( \
-    0 \
+    (size) \
     )
-
-#if 0
-#define MPU_CONFIG_ETH(size) ( \
-    MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RASR_XN_Pos \
-        | MPU_REGION_FULL_ACCESS << MPU_RASR_AP_Pos \
-        | MPU_TEX_LEVEL1 << MPU_RASR_TEX_Pos \
-        | MPU_ACCESS_SHAREABLE << MPU_RASR_S_Pos \
-        | MPU_ACCESS_NOT_CACHEABLE << MPU_RASR_C_Pos \
-        | MPU_ACCESS_NOT_BUFFERABLE << MPU_RASR_B_Pos \
-        | 0x00 << MPU_RASR_SRD_Pos \
-    )
-#endif
-    // MPU->RBAR = (ST_DEVICE_SIGNATURE_BASE & MPU_RBAR_BASE_Msk)
-    //     | MPU_ACCESS_NOT_SHAREABLE << MPU_RBAR_SH_Pos
-    //     | MPU_REGION_ALL_RW << MPU_RBAR_AP_Pos
-    //     | MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RBAR_XN_Pos;
-    // MPU->RLAR = 
-    //     | MPU_ATTRIBUTES_NUMBER0 << MPU_RLAR_AttrIndx_Pos
-
 
 static inline void mpu_init(void) {
-
     // Configure attribute 0, inner-outer non-cacheable (=0x44).
     __DMB();
     MPU->MAIR0 = (MPU->MAIR0 & ~MPU_MAIR0_Attr0_Msk)
@@ -88,40 +69,35 @@ static inline uint32_t mpu_config_start(void) {
     return disable_irq();
 }
 
-
-    // uint32_t irq_state = mpu_config_start();
-    // mpu_config_region(MPU_REGION_ETH, (uint32_t)&eth_dma, MPU_CONFIG_ETH(MPU_REGION_SIZE_16KB));
-    // mpu_config_end(irq_state);
-
-static inline void mpu_config_region(uint32_t region, uint32_t base_addr, uint32_t attr_size) {
-
+static inline void mpu_config_region(uint32_t region, uint32_t base_addr, uint32_t size) {
     if (region == MPU_REGION_ETH) {
-        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() ETH %08x %08x\n", base_addr, attr_size);
-        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() ETH %08x\n", base_addr+16*1024-1);
+        // Configure region 1 to make DMA memory non-cacheable.
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() ETH %08x %08x\n", base_addr, size);
+        mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() ETH %08x\n", base_addr+size-1);
 
         __DMB();
-        // Configure region 1 to make DMA memory non-cacheable.
+        // Configure attribute 1, inner-outer non-cacheable (=0x44).
         MPU->MAIR0 = (MPU->MAIR0 & ~MPU_MAIR0_Attr1_Msk)
             | 0x44 << MPU_MAIR0_Attr1_Pos;
         __DMB();
         mp_printf(MICROPY_ERROR_PRINTER, "mpu_config_region() MAIR0 %08x\n", MPU->MAIR0);
 
         // RBAR
-        // BASE          Bits [31:5] of base
-        // SH[4:3]  00 = Non-shareable.
-        // AP[2:1]  01 = Read/write by any privilege level.
-        // XN[0]:    1 = No execution
+        //  BASE          Bits [31:5] of base address
+        //  SH[4:3]  00 = Non-shareable
+        //  AP[2:1]  01 = Read/write by any privilege level
+        //  XN[0]:    1 = No execution
 
         // RLAR
-        // LIMIT         Limit address. Contains bits[31:5] of the upper inclusive limit of the selected MPU memory region.
-        // AT[3:1] 001 = Attribute 1
-        // EN[0]     1 = Enabled
+        //  LIMIT         Limit address. Contains bits[31:5] of the upper inclusive limit of the selected MPU memory region
+        //  AT[3:1] 001 = Attribute 1
+        //  EN[0]     1 = Enabled
         MPU->RNR = region;
         MPU->RBAR = (base_addr & MPU_RBAR_BASE_Msk)
             | MPU_ACCESS_NOT_SHAREABLE << MPU_RBAR_SH_Pos
             | MPU_REGION_ALL_RW << MPU_RBAR_AP_Pos
             | MPU_INSTRUCTION_ACCESS_DISABLE << MPU_RBAR_XN_Pos;
-        MPU->RLAR = ((base_addr + ETH_RANGE_SIZE - 1) & MPU_RLAR_LIMIT_Msk)
+        MPU->RLAR = ((base_addr + size - 1) & MPU_RLAR_LIMIT_Msk)
             | MPU_ATTRIBUTES_NUMBER1 << MPU_RLAR_AttrIndx_Pos
             | MPU_REGION_ENABLE << MPU_RLAR_EN_Pos;
 
@@ -138,7 +114,6 @@ static inline void mpu_config_end(uint32_t irq_state) {
     __DMB();
     enable_irq(irq_state);
 }
-
 
 #elif defined(STM32F7) || defined(STM32H7) || defined(MICROPY_HW_ETH_MDC)
 
