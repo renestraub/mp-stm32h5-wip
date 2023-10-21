@@ -36,9 +36,7 @@
 
 // STM32H5 Cortex-M33 MPU works differently from older cores.
 // Macro only takes region size in bytes, Attributes are coded in mpu_config_region().
-#define MPU_CONFIG_ETH(size) ( \
-    (size) \
-    )
+#define MPU_CONFIG_ETH(size) (size)
 
 static inline void mpu_init(void) {
     // Configure attribute 0, inner-outer non-cacheable (=0x44).

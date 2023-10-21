@@ -440,17 +440,7 @@ STATIC int eth_mac_init(eth_t *self) {
 
     // Configure RX descriptor lists
     for (size_t i = 0; i < RX_BUF_NUM; ++i) {
-        #if defined(STM32H7)
-        eth_dma.rx_descr[i].rdes3 =
-            1 << RX_DESCR_3_OWN_Pos
-                | (1 << RX_DESCR_3_BUF1V_Pos) // buf1 address valid
-                | (1 << RX_DESCR_3_IOC_Pos) // Interrupt Enabled on Completion
-        ;
-        eth_dma.rx_descr[i].rdes0 = (uint32_t)&eth_dma.rx_buf[i * RX_BUF_SIZE]; // buf 1 address
-        #elif defined(STM32H5)
-        // TODO: Check STM32H5
-        // eth_dma.rx_descr[i].rdes1 = 0;  // reserved
-        // eth_dma.rx_descr[i].rdes2 = 0;
+        #if defined(STM32H7) || defined(STM32H5)
         eth_dma.rx_descr[i].rdes3 =
             1 << RX_DESCR_3_OWN_Pos
                 | (1 << RX_DESCR_3_BUF1V_Pos) // buf1 address valid
@@ -477,12 +467,7 @@ STATIC int eth_mac_init(eth_t *self) {
 
     // Configure TX descriptor lists
     for (size_t i = 0; i < TX_BUF_NUM; ++i) {
-        #if defined(STM32H7)
-        eth_dma.tx_descr[i].tdes0 = 0;
-        eth_dma.tx_descr[i].tdes1 = 0;
-        eth_dma.tx_descr[i].tdes2 = TX_BUF_SIZE & TX_DESCR_2_B1L_Msk;
-        eth_dma.tx_descr[i].tdes3 = 0;
-        #elif defined(STM32H5)
+        #if defined(STM32H7) || defined(STM32H5)
         eth_dma.tx_descr[i].tdes0 = 0;
         eth_dma.tx_descr[i].tdes1 = 0;
         eth_dma.tx_descr[i].tdes2 = TX_BUF_SIZE & TX_DESCR_2_B1L_Msk;
@@ -601,11 +586,7 @@ STATIC int eth_tx_buf_get(size_t len, uint8_t **buf) {
     eth_dma_tx_descr_t *tx_descr = &eth_dma.tx_descr[eth_dma.tx_descr_idx];
     uint32_t t0 = mp_hal_ticks_ms();
     for (;;) {
-        #if defined(STM32H7)
-        if (!(tx_descr->tdes3 & (1 << TX_DESCR_3_OWN_Pos))) {
-            break;
-        }
-        #elif defined(STM32H5)
+        #if defined(STM32H7) || defined(STM32H5)
         if (!(tx_descr->tdes3 & (1 << TX_DESCR_3_OWN_Pos))) {
             break;
         }
@@ -619,14 +600,8 @@ STATIC int eth_tx_buf_get(size_t len, uint8_t **buf) {
         }
     }
 
-    // mp_printf(MICROPY_ERROR_PRINTER, "eth_tx_buf_get()\n");
-
-    #if defined(STM32H7)
+    #if defined(STM32H7) || defined(STM32H5)
     // Update TX descriptor with length and buffer pointer
-    *buf = &eth_dma.tx_buf[eth_dma.tx_descr_idx * TX_BUF_SIZE];
-    tx_descr->tdes2 = len & TX_DESCR_2_B1L_Msk;
-    tx_descr->tdes0 = (uint32_t)*buf;
-    #elif defined(STM32H5)
     *buf = &eth_dma.tx_buf[eth_dma.tx_descr_idx * TX_BUF_SIZE];
     tx_descr->tdes2 = len & TX_DESCR_2_B1L_Msk;
     tx_descr->tdes0 = (uint32_t)*buf;
@@ -649,19 +624,12 @@ STATIC int eth_tx_buf_send(void) {
     eth_dma.tx_descr_idx = (eth_dma.tx_descr_idx + 1) % TX_BUF_NUM;
 
     // Schedule to send next outgoing frame
-    #if defined(STM32H7)
+    #if defined(STM32H7) || defined(STM32H5)
     tx_descr->tdes3 =
         1 << TX_DESCR_3_OWN_Pos     // owned by DMA
             | 1 << TX_DESCR_3_LD_Pos // last segment
             | 1 << TX_DESCR_3_FD_Pos // first segment
             | 3 << TX_DESCR_3_CIC_Pos // enable all checksums inserted by hardware
-    ;
-    #elif defined(STM32H5)
-    tx_descr->tdes3 =
-        1 << TX_DESCR_3_OWN_Pos     // owned by DMA
-            | 1 << TX_DESCR_3_LD_Pos // last segment
-            | 1 << TX_DESCR_3_FD_Pos // first segment
-            | 3 << TX_DESCR_3_CIC_Pos // enable all checksums (IP hdr, payload) inserted by hardware
     ;
     #else
     tx_descr->tdes0 =
@@ -699,12 +667,7 @@ STATIC void eth_dma_rx_free(void) {
     eth_dma.rx_descr_idx = (eth_dma.rx_descr_idx + 1) % RX_BUF_NUM;
 
     // Schedule to get next incoming frame
-    #if defined(STM32H7)
-    rx_descr->rdes0 = (uint32_t)buf;
-    rx_descr->rdes3 = 1 << RX_DESCR_3_OWN_Pos;  // owned by DMA
-    rx_descr->rdes3 |= 1 << RX_DESCR_3_BUF1V_Pos; // buf 1 address valid
-    rx_descr->rdes3 |= 1 << RX_DESCR_3_IOC_Pos; // Interrupt Enabled on Completion
-    #elif defined(STM32H5)
+    #if defined(STM32H7) || defined(STM32H5)
     rx_descr->rdes0 = (uint32_t)buf;
     rx_descr->rdes3 = 1 << RX_DESCR_3_OWN_Pos;  // owned by DMA
     rx_descr->rdes3 |= 1 << RX_DESCR_3_BUF1V_Pos; // buf 1 address valid
@@ -745,13 +708,7 @@ void ETH_IRQHandler(void) {
         ETH->DMASR = ETH_DMASR_RS;
         #endif
         for (;;) {
-            #if defined(STM32H7)
-            eth_dma_rx_descr_t *rx_descr_l = &eth_dma.rx_descr[eth_dma.rx_descr_idx];
-            if (rx_descr_l->rdes3 & (1 << RX_DESCR_3_OWN_Pos)) {
-                // No more RX descriptors ready to read
-                break;
-            }
-            #elif defined(STM32H5)
+            #if defined(STM32H7) || defined(STM32H5)
             eth_dma_rx_descr_t *rx_descr_l = &eth_dma.rx_descr[eth_dma.rx_descr_idx];
             if (rx_descr_l->rdes3 & (1 << RX_DESCR_3_OWN_Pos)) {
                 // No more RX descriptors ready to read
@@ -766,17 +723,13 @@ void ETH_IRQHandler(void) {
             #endif
 
             // Get RX buffer containing new frame
-            #if defined(STM32H7)
-            size_t len = (rx_descr_l->rdes3 & RX_DESCR_3_PL_Msk);
-            #elif defined(STM32H5)
+            #if defined(STM32H7) || defined(STM32H5)
             size_t len = (rx_descr_l->rdes3 & RX_DESCR_3_PL_Msk);
             #else
             size_t len = (rx_descr->rdes0 & RX_DESCR_0_FL_Msk) >> RX_DESCR_0_FL_Pos;
             #endif
             len -= 4; // discard CRC at end
-            #if defined(STM32H7)
-            uint8_t *buf = &eth_dma.rx_buf[eth_dma.rx_descr_idx * RX_BUF_SIZE];
-            #elif defined(STM32H5)
+            #if defined(STM32H7) || defined(STM32H5)
             uint8_t *buf = &eth_dma.rx_buf[eth_dma.rx_descr_idx * RX_BUF_SIZE];
             #else
             uint8_t *buf = (uint8_t *)rx_descr->rdes2;
@@ -965,7 +918,6 @@ void eth_low_power_mode(eth_t *self, bool enable) {
 
     // Enable eth clock
     #if defined(STM32H7)
-    // TODO: STM32H5
     __HAL_RCC_ETH1MAC_CLK_ENABLE();
     #else
     __HAL_RCC_ETH_CLK_ENABLE();
@@ -978,7 +930,6 @@ void eth_low_power_mode(eth_t *self, bool enable) {
         // Disable eth clock.
         #if defined(STM32H7)
         __HAL_RCC_ETH1MAC_CLK_DISABLE();
-        // TODO: STM32H5
         #else
         __HAL_RCC_ETH_CLK_DISABLE();
         #endif

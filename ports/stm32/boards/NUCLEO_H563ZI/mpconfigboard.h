@@ -6,7 +6,7 @@
 #define MICROPY_HW_ENABLE_RTC               (1)
 #define MICROPY_HW_ENABLE_RNG               (1)
 #define MICROPY_HW_ENABLE_ADC               (1)
-#define MICROPY_HW_ENABLE_DAC               (1) // TODO: requires DMA, which is not yet ready
+#define MICROPY_HW_ENABLE_DAC               (1)
 #define MICROPY_HW_ENABLE_USB               (1)
 #define MICROPY_HW_HAS_SWITCH               (1)
 #define MICROPY_HW_HAS_FLASH                (1)
@@ -23,7 +23,8 @@
 #define MICROPY_HW_CLK_PLLFRAC              (0)
 
 // PLL3 with Q output at 48MHz for USB
-#define MICROPY_HW_CLK_PLL3M                (25)
+// #define MICROPY_HW_CLK_USE_PLL3_FOR_USB
+#define MICROPY_HW_CLK_PLL3M                (8)
 #define MICROPY_HW_CLK_PLL3N                (192)
 #define MICROPY_HW_CLK_PLL3P                (2)
 #define MICROPY_HW_CLK_PLL3Q                (4)
@@ -39,7 +40,6 @@
 #define MICROPY_HW_RTC_USE_LSE              (1)
 
 // UART config
-// TODO: UART1 or LPUART1? LPUART1 seems to crash system at boot...
 #define MICROPY_HW_UART1_TX                 (pin_B6) // SB14: Arduino Connector CN10-Pin14 (D1)
 #define MICROPY_HW_UART1_RX                 (pin_B7) // SB63: Arduino Connector CN10-Pin16 (D0)
 #define MICROPY_HW_UART3_TX                 (pin_D8) // SB23: ST-Link

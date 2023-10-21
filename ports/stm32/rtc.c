@@ -733,6 +733,7 @@ mp_obj_t pyb_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
     MP_STATE_PORT(pyb_extint_callback)[EXTI_RTC_WAKEUP] = callback;
 
     // disable register write protection
+    // TODO: Isn't there a macro for this???
     RTC->WPR = 0xca;
     RTC->WPR = 0x53;
 
@@ -753,12 +754,15 @@ mp_obj_t pyb_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
         RTC->CR = (RTC->CR & ~7) | (1 << 14) | (1 << 10) | (wucksel & 7);
 
         // enable register write protection
+        // TODO: Isn't there a macro for this???
         RTC->WPR = 0xff;
 
         // enable external interrupts on line EXTI_RTC_WAKEUP
-        #if defined(STM32G0) || defined(STM32G4) || defined(STM32H5) || defined(STM32L4) || defined(STM32WB) || defined(STM32WL)
+        #if defined(STM32G0) || defined(STM32G4) || defined(STM32L4) || defined(STM32WB) || defined(STM32WL)
         EXTI->IMR1 |= 1 << EXTI_RTC_WAKEUP;
         EXTI->RTSR1 |= 1 << EXTI_RTC_WAKEUP;
+        #elif defined(STM32H5)
+        EXTI->IMR1 |= 1 << EXTI_RTC_WAKEUP;
         #elif defined(STM32H7)
         EXTI_D1->IMR1 |= 1 << EXTI_RTC_WAKEUP;
         EXTI->RTSR1 |= 1 << EXTI_RTC_WAKEUP;
@@ -768,8 +772,11 @@ mp_obj_t pyb_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
         #endif
 
         // clear interrupt flags
-        #if defined(STM32G0) || defined(STM32G4) || defined(STM32H5) || defined(STM32WL)
+        #if defined(STM32G0) || defined(STM32G4) || defined(STM32WL)
         RTC->ICSR &= ~RTC_ICSR_WUTWF;
+        RTC->MISR &= ~RTC_MISR_WUTMF; // clear wakeup interrupt flag
+        #elif defined(STM32H5)
+        RTC->SCR = RTC_SCR_CWUTF; // clear wakeup interrupt flag
         #elif defined(STM32H7A3xx) || defined(STM32H7A3xxQ) || defined(STM32H7B3xx) || defined(STM32H7B3xxQ)
         RTC->SR &= ~RTC_SR_WUTF;
         #else
@@ -792,6 +799,7 @@ mp_obj_t pyb_rtc_wakeup(size_t n_args, const mp_obj_t *args) {
         RTC->CR &= ~RTC_CR_WUTIE;
 
         // enable register write protection
+        // TODO: Isn't there a macro for this???
         RTC->WPR = 0xff;
 
         // disable external interrupts on line EXTI_RTC_WAKEUP
